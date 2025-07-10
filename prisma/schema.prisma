@@ -1,0 +1,580 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// ===== MODÈLES MÉTIER PRINCIPAUX =====
+
+model Company {
+    company_id     String    @id @default(uuid())
+    name           String    @db.VarChar(100)
+    siret          String    @unique @db.VarChar(14)
+    tva_intra      String?   @db.VarChar(13)
+    tva_applicable Boolean
+    RCS_number     String    @db.VarChar(100)
+    RCS_city       String    @db.VarChar(100)
+    capital        Decimal?  @db.Decimal(10, 2)
+    siren          String    @unique @db.VarChar(9)
+    legal_form     LegalForm
+    address        String    @db.VarChar(255)
+    postal_code    String    @db.VarChar(10)
+    city           String    @db.VarChar(100)
+    country        String    @default("France") @db.VarChar(100)
+    email          String?   @db.VarChar(100)
+    phone          String?   @db.VarChar(20)
+    website        String?   @db.VarChar(255)
+    logo_url       String?   @db.VarChar(500)
+    description    String?   @db.Text
+    industry       String?   @db.VarChar(100)
+    employee_count Int?
+    annual_revenue Decimal?  @db.Decimal(15, 2)
+    timezone       String    @default("Europe/Paris") @db.VarChar(50)
+    currency       String    @default("EUR") @db.VarChar(3)
+    language       String    @default("fr") @db.VarChar(5)
+    is_active      Boolean   @default(true)
+    createdAt      DateTime  @default(now()) @map("createdAt")
+    updatedAt      DateTime  @updatedAt @map("updatedAt")
+
+    // Relations
+    customers Customer[]
+    invoices  Invoice[]
+    products  Product[]
+    quotes    Quote[]
+    users     User[]
+    settings  CompanySettings[]
+
+    @@index([siret])
+    @@index([siren])
+    @@index([is_active])
+    @@index([createdAt])
+}
+
+model User {
+    id                   String         @id
+    name                 String
+    email                String         @unique
+    emailVerified        Boolean
+    image                String?
+    createdAt            DateTime
+    updatedAt            DateTime
+    companyCompany_id    String?
+    first_name           String         @db.VarChar(50)
+    last_name            String         @db.VarChar(50)
+    company_id           String?
+    onboarding_completed Boolean        @default(false)
+    onboarding_step      OnboardingStep @default(CHOOSING_COMPANY)
+    stripe_account_id    String?
+    stripe_onboarded     Boolean        @default(false)
+    role                 UserRole       @default(USER)
+    status               UserStatus     @default(ACTIVE)
+    phone                String?        @db.VarChar(20)
+    position             String?        @db.VarChar(100)
+    department           String?        @db.VarChar(100)
+    bio                  String?        @db.Text
+    preferences          Json?
+    last_login_at        DateTime?
+    is_active            Boolean        @default(true)
+
+    // Relations
+    Customer Customer[]
+    Invoice  Invoice[]
+    Quote    Quote[]
+    Company  Company?   @relation(fields: [companyCompany_id], references: [company_id])
+    accounts Account[]
+    sessions Session[]
+
+    @@index([email])
+    @@index([company_id])
+    @@index([is_active])
+    @@index([role])
+    @@map("user")
+}
+
+model Account {
+    id                String  @id @default(cuid())
+    userId            String
+    type              String
+    provider          String
+    providerAccountId String
+    refresh_token     String? @db.Text
+    access_token      String? @db.Text
+    expires_at        Int?
+    token_type        String?
+    scope             String?
+    id_token          String? @db.Text
+    session_state     String?
+    user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([provider, providerAccountId])
+}
+
+model Session {
+    id           String   @id @default(cuid())
+    sessionToken String   @unique
+    userId       String
+    expires      DateTime
+    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Customer {
+    customer_id        String       @id @default(uuid())
+    user_id            String
+    company_id         String
+    type               CustomerType @default(individual)
+    email              String?      @db.VarChar(100)
+    phone              String?      @db.VarChar(20)
+    address            String?      @db.VarChar(100)
+    city               String?      @db.VarChar(50)
+    postal_code        String?      @db.VarChar(20)
+    country            String       @default("France") @db.VarChar(50)
+    notes              String?      @db.Text
+    tags               String[]
+    is_active          Boolean      @default(true)
+    preferred_language String       @default("fr") @db.VarChar(5)
+    payment_terms      Int          @default(30) // Jours
+    credit_limit       Decimal?     @db.Decimal(10, 2)
+    tax_exempt         Boolean      @default(false)
+    createdAt          DateTime     @default(now()) @map("createdAt")
+    updatedAt          DateTime     @updatedAt @map("updatedAt")
+
+    // Relations
+    business   BusinessCustomer?
+    company    Company             @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+    user       User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
+    individual IndividualCustomer?
+    invoices   Invoice[]
+    quotes     Quote[]
+
+    @@index([company_id])
+    @@index([user_id])
+    @@index([type])
+    @@index([is_active])
+    @@index([email])
+}
+
+model BusinessCustomer {
+    customer_id    String     @id @unique
+    name           String     @db.VarChar(100)
+    siret          String     @db.VarChar(14)
+    siren          String     @db.VarChar(9)
+    tva_intra      String?    @db.VarChar(13)
+    tva_applicable Boolean
+    legal_form     LegalForm?
+    industry       String?    @db.VarChar(100)
+    website        String?    @db.VarChar(255)
+    employee_count Int?
+    annual_revenue Decimal?   @db.Decimal(15, 2)
+
+    customer Customer @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+
+    @@index([siret])
+    @@index([siren])
+}
+
+model IndividualCustomer {
+    customer_id   String    @id @unique
+    first_name    String    @db.VarChar(50)
+    last_name     String    @db.VarChar(50)
+    date_of_birth DateTime? @db.Date
+    gender        Gender?
+    profession    String?   @db.VarChar(100)
+
+    customer Customer @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+}
+
+model Product {
+    product_id          String      @id @default(uuid())
+    company_id          String
+    name                String      @db.VarChar(100)
+    description         String?     @db.Text
+    sku                 String?     @unique @db.VarChar(50)
+    barcode             String?     @db.VarChar(50)
+    category            String?     @db.VarChar(100)
+    brand               String?     @db.VarChar(100)
+    price_excluding_tax Decimal     @db.Decimal(10, 2)
+    cost_price          Decimal?    @db.Decimal(10, 2)
+    margin_percentage   Decimal?    @db.Decimal(5, 2)
+    vat_rate            VatRate     @default(ZERO)
+    unit                ProductUnit @default(unite)
+    weight              Decimal?    @db.Decimal(8, 3)
+    dimensions          Json? // {length, width, height}
+    stock_quantity      Int?        @default(0)
+    min_stock_level     Int?        @default(0)
+    max_stock_level     Int?
+    track_inventory     Boolean     @default(false)
+    is_active           Boolean     @default(true)
+    is_digital          Boolean     @default(false)
+    image_urls          String[]
+    tags                String[]
+    meta_data           Json?
+    createdAt           DateTime    @default(now()) @map("createdAt")
+    updatedAt           DateTime    @updatedAt @map("updatedAt")
+
+    // Relations
+    invoice_items InvoiceItem[]
+    company       Company       @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+    quote_items   QuoteItem[]
+
+    @@index([company_id])
+    @@index([sku])
+    @@index([category])
+    @@index([is_active])
+    @@index([name])
+}
+
+model Invoice {
+    invoice_id           String         @id @default(uuid())
+    customer_id          String
+    user_id              String
+    company_id           String?
+    invoice_number       String         @unique @db.VarChar(50)
+    reference            String?        @db.VarChar(100)
+    invoice_date         DateTime       @db.Date
+    due_date             DateTime       @db.Date
+    amount_excluding_tax Decimal        @db.Decimal(10, 2)
+    tax                  Decimal        @db.Decimal(10, 2)
+    amount_including_tax Decimal        @db.Decimal(10, 2)
+    discount_amount      Decimal?       @db.Decimal(10, 2)
+    discount_percentage  Decimal?       @db.Decimal(5, 2)
+    shipping_cost        Decimal?       @db.Decimal(10, 2)
+    status               InvoiceStatus  @default(pending)
+    payment_status       PaymentStatus  @default(unpaid)
+    payment_method       PaymentMethod?
+    currency             String         @default("EUR") @db.VarChar(3)
+    exchange_rate        Decimal?       @db.Decimal(10, 6)
+    conditions           String?        @db.VarChar(1000)
+    late_payment_penalty String?
+    notes                String?        @db.Text
+    internal_notes       String?        @db.Text
+    pdf_url              String?        @db.VarChar(500)
+    sent_at              DateTime?
+    paid_at              DateTime?
+    cancelled_at         DateTime?
+    reminder_count       Int            @default(0)
+    last_reminder_at     DateTime?
+    language             String         @default("fr") @db.VarChar(5)
+    template_id          String?        @db.VarChar(50)
+    meta_data            Json?
+    createdAt            DateTime       @default(now()) @map("createdAt")
+    updatedAt            DateTime       @updatedAt @map("updatedAt")
+
+    // Relations
+    company  Company?      @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+    customer Customer      @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+    user     User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+    items    InvoiceItem[]
+    payments Payment[]
+
+    @@index([company_id])
+    @@index([customer_id])
+    @@index([user_id])
+    @@index([status])
+    @@index([payment_status])
+    @@index([invoice_date])
+    @@index([due_date])
+    @@index([invoice_number])
+}
+
+model InvoiceItem {
+    item_id                  String      @id @default(uuid())
+    invoice_id               String
+    product_id               String?
+    name                     String?     @db.VarChar(100)
+    description              String?     @db.Text
+    quantity                 Decimal     @db.Decimal(10, 2)
+    unit                     ProductUnit @default(unite)
+    unit_price_excluding_tax Decimal     @db.Decimal(10, 2)
+    discount_percentage      Decimal?    @db.Decimal(5, 2)
+    discount_amount          Decimal?    @db.Decimal(10, 2)
+    vat_rate                 VatRate     @default(ZERO)
+    total_excluding_tax      Decimal     @db.Decimal(10, 2)
+    total_including_tax      Decimal     @db.Decimal(10, 2)
+    sort_order               Int         @default(0)
+
+    invoice Invoice  @relation(fields: [invoice_id], references: [invoice_id], onDelete: Cascade)
+    product Product? @relation(fields: [product_id], references: [product_id])
+
+    @@index([invoice_id])
+    @@index([product_id])
+}
+
+model Payment {
+    payment_id       String        @id @default(uuid())
+    invoice_id       String
+    payment_date     DateTime
+    amount           Decimal       @db.Decimal(10, 2)
+    currency         String        @default("EUR") @db.VarChar(3)
+    exchange_rate    Decimal?      @db.Decimal(10, 6)
+    payment_method   PaymentMethod
+    transaction_id   String?       @db.VarChar(100)
+    description      String?       @db.VarChar(500)
+    reference        String?       @db.VarChar(100)
+    status           PaymentStatus @default(completed)
+    fees             Decimal?      @db.Decimal(10, 2)
+    net_amount       Decimal?      @db.Decimal(10, 2)
+    gateway          String?       @db.VarChar(50)
+    gateway_response Json?
+    reconciled       Boolean       @default(false)
+    reconciled_at    DateTime?
+    notes            String?       @db.Text
+    createdAt        DateTime      @default(now()) @map("createdAt")
+    updatedAt        DateTime      @updatedAt @map("updatedAt")
+
+    invoice Invoice @relation(fields: [invoice_id], references: [invoice_id], onDelete: Cascade)
+
+    @@index([invoice_id])
+    @@index([payment_date])
+    @@index([status])
+    @@index([payment_method])
+    @@index([transaction_id])
+}
+
+model Quote {
+    quote_id             String      @id @default(uuid())
+    customer_id          String
+    user_id              String
+    company_id           String?
+    quote_number         String      @unique @db.VarChar(50)
+    reference            String?     @db.VarChar(100)
+    title                String?     @db.VarChar(200)
+    quote_date           DateTime    @db.Date
+    validity_date        DateTime    @db.Date
+    amount_excluding_tax Decimal     @db.Decimal(10, 2)
+    tax                  Decimal     @db.Decimal(10, 2)
+    amount_including_tax Decimal     @db.Decimal(10, 2)
+    discount_amount      Decimal?    @db.Decimal(10, 2)
+    discount_percentage  Decimal?    @db.Decimal(5, 2)
+    shipping_cost        Decimal?    @db.Decimal(10, 2)
+    status               QuoteStatus @default(draft)
+    currency             String      @default("EUR") @db.VarChar(3)
+    exchange_rate        Decimal?    @db.Decimal(10, 6)
+    conditions           String?     @db.VarChar(1000)
+    terms                String?     @db.Text
+    notes                String?     @db.Text
+    internal_notes       String?     @db.Text
+    pdf_url              String?     @db.VarChar(500)
+    sent_at              DateTime?
+    viewed_at            DateTime?
+    accepted_at          DateTime?
+    rejected_at          DateTime?
+    expired_at           DateTime?
+    converted_to_invoice Boolean     @default(false)
+    invoice_id           String?
+    language             String      @default("fr") @db.VarChar(5)
+    template_id          String?     @db.VarChar(50)
+    meta_data            Json?
+    createdAt            DateTime    @default(now()) @map("createdAt")
+    updatedAt            DateTime    @updatedAt @map("updatedAt")
+
+    // Relations
+    company  Company?    @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+    customer Customer    @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+    user     User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+    items    QuoteItem[]
+
+    @@index([company_id])
+    @@index([customer_id])
+    @@index([user_id])
+    @@index([status])
+    @@index([quote_date])
+    @@index([validity_date])
+    @@index([quote_number])
+}
+
+model QuoteItem {
+    item_id                  String      @id @default(uuid())
+    quote_id                 String
+    product_id               String?
+    name                     String?     @db.VarChar(100)
+    description              String?     @db.Text
+    quantity                 Decimal     @db.Decimal(10, 2)
+    unit                     ProductUnit @default(unite)
+    unit_price_excluding_tax Decimal     @db.Decimal(10, 2)
+    discount_percentage      Decimal?    @db.Decimal(5, 2)
+    discount_amount          Decimal?    @db.Decimal(10, 2)
+    vat_rate                 VatRate     @default(ZERO)
+    total_excluding_tax      Decimal     @db.Decimal(10, 2)
+    total_including_tax      Decimal     @db.Decimal(10, 2)
+    sort_order               Int         @default(0)
+
+    quote   Quote    @relation(fields: [quote_id], references: [quote_id], onDelete: Cascade)
+    product Product? @relation(fields: [product_id], references: [product_id])
+
+    @@index([quote_id])
+    @@index([product_id])
+}
+
+// Paramètres de l'entreprise
+model CompanySettings {
+    id                    String        @id @default(uuid())
+    company_id            String        @unique
+    invoice_prefix        String        @default("INV") @db.VarChar(10)
+    quote_prefix          String        @default("QUO") @db.VarChar(10)
+    invoice_numbering     NumberingType @default(AUTO_INCREMENT)
+    quote_numbering       NumberingType @default(AUTO_INCREMENT)
+    next_invoice_number   Int           @default(1)
+    next_quote_number     Int           @default(1)
+    default_payment_terms Int           @default(30)
+    default_currency      String        @default("EUR") @db.VarChar(3)
+    default_language      String        @default("fr") @db.VarChar(5)
+    default_vat_rate      VatRate       @default(STANDARD)
+    late_fee_percentage   Decimal?      @db.Decimal(5, 2)
+    late_fee_fixed        Decimal?      @db.Decimal(10, 2)
+    auto_send_reminders   Boolean       @default(false)
+    reminder_schedule     Json? // Configuration des relances
+    email_templates       Json? // Templates d'email
+    invoice_template      String?       @db.VarChar(50)
+    quote_template        String?       @db.VarChar(50)
+    logo_url              String?       @db.VarChar(500)
+    signature_url         String?       @db.VarChar(500)
+    bank_details          Json? // Coordonnées bancaires
+    fiscal_year_start     Int           @default(1) // Mois de début d'exercice (1-12)
+    timezone              String        @default("Europe/Paris") @db.VarChar(50)
+    date_format           String        @default("DD/MM/YYYY") @db.VarChar(20)
+    number_format         String        @default("fr-FR") @db.VarChar(10)
+
+    company Company @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+
+    @@index([company_id])
+}
+
+// ===== ENUMS =====
+
+enum OnboardingStep {
+    CHOOSING_COMPANY
+    STRIPE_SETUP
+    FINISH
+}
+
+enum UserRole {
+    ADMIN
+    MANAGER
+    USER
+    ACCOUNTANT
+    SALES
+    READONLY
+}
+
+enum UserStatus {
+    ACTIVE
+    INACTIVE
+    SUSPENDED
+    PENDING
+}
+
+enum LegalForm {
+    SAS
+    SARL
+    SA
+    SASU
+    EURL
+    SNC
+    SOCIETE_CIVILE
+    ENTREPRISE_INDIVIDUELLE
+    MICRO_ENTREPRISE
+    AUTO_ENTREPRENEUR
+    EI
+    EIRL
+}
+
+enum CustomerType {
+    individual
+    company
+}
+
+enum Gender {
+    MALE
+    FEMALE
+    OTHER
+    PREFER_NOT_TO_SAY
+}
+
+enum InvoiceStatus {
+    draft
+    pending
+    sent
+    paid
+    partially_paid
+    overdue
+    cancelled
+    refunded
+}
+
+enum PaymentStatus {
+    unpaid
+    partially_paid
+    paid
+    overpaid
+    refunded
+    failed
+    pending
+    cancelled
+}
+
+enum QuoteStatus {
+    draft
+    pending
+    sent
+    viewed
+    accepted
+    rejected
+    expired
+    cancelled
+    converted
+}
+
+enum PaymentMethod {
+    cash
+    check
+    credit_card
+    debit_card
+    bank_transfer
+    stripe
+    paypal
+    apple_pay
+    google_pay
+    other
+}
+
+enum ProductUnit {
+    unite   @map("unité")
+    kg
+    g
+    l
+    ml
+    m
+    cm
+    mm
+    m2      @map("m²")
+    cm2     @map("cm²")
+    m3      @map("m³")
+    h
+    jour
+    semaine
+    mois
+    annee   @map("année")
+    piece   @map("pièce")
+    lot
+    paquet
+    boite   @map("boîte")
+}
+
+enum VatRate {
+    ZERO      @map("0.00")
+    REDUCED_1 @map("2.10")
+    REDUCED_2 @map("5.50")
+    REDUCED_3 @map("10.00")
+    STANDARD  @map("20.00")
+    EXPORT    @map("0.00") // Export hors UE
+}
+
+enum NumberingType {
+    AUTO_INCREMENT
+    YEARLY_RESET
+    MONTHLY_RESET
+    CUSTOM
+}
