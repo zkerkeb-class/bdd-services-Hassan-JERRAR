@@ -1,0 +1,162 @@
+version: "3.8"
+
+services:
+    # Base de données PostgreSQL pour le microservice business
+    business-postgres:
+        image: postgres:15-alpine
+        container_name: zenbilling-business-postgres
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: ${POSTGRES_DB:-zenbilling_business}
+            POSTGRES_USER: ${POSTGRES_USER:-postgres}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+        volumes:
+            - business_postgres_data:/var/lib/postgresql/data
+            - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+        ports:
+            - "${POSTGRES_PORT:-5433}:5432"
+        networks:
+            - business-network
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-zenbilling_business}",
+                ]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+    # Cache Redis pour le microservice business
+    business-redis:
+        image: redis:7-alpine
+        container_name: zenbilling-business-redis
+        restart: unless-stopped
+        command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+        volumes:
+            - business_redis_data:/data
+        ports:
+            - "${REDIS_PORT:-6380}:6379"
+        networks:
+            - business-network
+        healthcheck:
+            test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+
+    # Microservice Business
+    business-service:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: zenbilling-business-service
+        restart: unless-stopped
+        environment:
+            # Application
+            NODE_ENV: ${NODE_ENV:-development}
+            PORT: ${PORT:-3001}
+
+            # Base de données
+            DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@business-postgres:5432/${POSTGRES_DB:-zenbilling_business}
+
+            # Redis
+            REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@business-redis:6379
+            REDIS_HOST: business-redis
+            REDIS_PORT: 6379
+            REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+
+            # Supabase (à configurer selon votre projet)
+            SUPABASE_URL: ${SUPABASE_URL}
+            SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+            SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+
+            # JWT
+            JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+            JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+
+            # Autres services
+            ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3002}
+
+            # Monitoring
+            LOG_LEVEL: ${LOG_LEVEL:-info}
+
+        ports:
+            - "${BUSINESS_PORT:-3001}:3001"
+        networks:
+            - business-network
+        depends_on:
+            business-postgres:
+                condition: service_healthy
+            business-redis:
+                condition: service_healthy
+        volumes:
+            - ./logs:/app/logs
+            - business_uploads:/app/uploads
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "wget",
+                    "--no-verbose",
+                    "--tries=1",
+                    "--spider",
+                    "http://localhost:3001/health",
+                ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+
+    # Dashboard Redis (optionnel, pour le développement)
+    redis-commander:
+        image: rediscommander/redis-commander:latest
+        container_name: zenbilling-redis-commander
+        restart: unless-stopped
+        environment:
+            REDIS_HOSTS: business:business-redis:6379:0:${REDIS_PASSWORD:-redis123}
+            HTTP_USER: ${REDIS_COMMANDER_USER:-admin}
+            HTTP_PASSWORD: ${REDIS_COMMANDER_PASSWORD:-admin}
+        ports:
+            - "${REDIS_COMMANDER_PORT:-8082}:8081"
+        networks:
+            - business-network
+        depends_on:
+            - business-redis
+        profiles:
+            - tools
+
+    # Dashboard PostgreSQL (optionnel, pour le développement)
+    pgadmin:
+        image: dpage/pgadmin4:latest
+        container_name: zenbilling-business-pgadmin
+        restart: unless-stopped
+        environment:
+            PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@zenbilling.com}
+            PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+            PGADMIN_CONFIG_SERVER_MODE: "False"
+        ports:
+            - "${PGADMIN_PORT:-8083}:80"
+        networks:
+            - business-network
+        depends_on:
+            - business-postgres
+        volumes:
+            - pgadmin_data:/var/lib/pgadmin
+        profiles:
+            - tools
+
+volumes:
+    business_postgres_data:
+        driver: local
+    business_redis_data:
+        driver: local
+    business_uploads:
+        driver: local
+    pgadmin_data:
+        driver: local
+
+networks:
+    business-network:
+        driver: bridge
+        name: zenbilling-business-network
